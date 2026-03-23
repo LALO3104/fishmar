@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FishMar | Acceso</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+  <main class="auth-shell">
+    <section class="auth-card">
+      <h1>FishMar</h1>
+      <p>Acceso de administrador y repartidor</p>
+
+      <input id="email" type="email" placeholder="Correo" />
+      <input id="password" type="password" placeholder="Contraseña" />
+
+      <button class="primary-btn" onclick="login()">Entrar</button>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>
