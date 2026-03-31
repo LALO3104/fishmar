@@ -7,6 +7,88 @@
   <link rel="stylesheet" href="css/styles.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,600;14..32,700&display=swap" rel="stylesheet">
+  
+  <!-- Leaflet CSS y JS para el mapa -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  
+  <style>
+    /* Estilos para el modal del mapa */
+    .map-modal {
+      display: none;
+      position: fixed;
+      z-index: 2000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.6);
+      backdrop-filter: blur(4px);
+    }
+    .map-modal-content {
+      background: white;
+      margin: 5% auto;
+      width: 90%;
+      max-width: 800px;
+      border-radius: 28px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      max-height: 85vh;
+      box-shadow: 0 20px 35px rgba(0,0,0,0.3);
+    }
+    .map-modal-header {
+      padding: 1rem 1.5rem;
+      background: #0ea5a4;
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .map-modal-header h3 {
+      margin: 0;
+    }
+    .map-search {
+      padding: 1rem;
+      background: #f8fafc;
+      display: flex;
+      gap: 8px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .map-search input {
+      flex: 1;
+      padding: 10px 12px;
+      border-radius: 40px;
+      border: 1px solid #cbd5e1;
+    }
+    .map-search button {
+      background: #0ea5a4;
+      color: white;
+      border: none;
+      border-radius: 40px;
+      padding: 0 20px;
+      cursor: pointer;
+    }
+    #map {
+      height: 400px;
+      width: 100%;
+    }
+    .map-modal-footer {
+      padding: 1rem;
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      border-top: 1px solid #e2e8f0;
+    }
+    .location-buttons {
+      display: flex;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .location-buttons button {
+      flex: 1;
+    }
+  </style>
 </head>
 <body>
 
@@ -99,7 +181,10 @@
           <!-- Aquí se cargan dinámicamente los items del carrito -->
         </div>
         <div class="checkout-form">
-          <button id="modalUbicacionBtn" class="small-btn cart-btn" onclick="obtenerUbicacion()">Usar mi ubicación 📍</button>
+          <div class="location-buttons">
+            <button id="modalUbicacionBtn" class="small-btn cart-btn" onclick="obtenerUbicacion()">📍 Usar mi ubicación actual</button>
+            <button class="small-btn cart-btn" onclick="abrirMapModal()">🗺️ Buscar en mapa</button>
+          </div>
           <p id="ubicacion" class="muted-text">Sin ubicación capturada.</p>
 
           <div class="form-grid">
@@ -151,6 +236,25 @@
     </div>
   </div>
 
+  <!-- Modal para seleccionar ubicación en mapa -->
+  <div id="mapModal" class="map-modal">
+    <div class="map-modal-content">
+      <div class="map-modal-header">
+        <h3>📍 Selecciona tu ubicación en el mapa</h3>
+        <span class="close-modal" onclick="cerrarMapModal()">&times;</span>
+      </div>
+      <div class="map-search">
+        <input type="text" id="searchAddress" placeholder="Escribe una dirección, colonia, etc." />
+        <button onclick="buscarDireccion()">Buscar</button>
+      </div>
+      <div id="map"></div>
+      <div class="map-modal-footer">
+        <button class="secondary-btn" onclick="cerrarMapModal()">Cancelar</button>
+        <button class="primary-btn" onclick="confirmarUbicacionMapa()">Usar esta ubicación</button>
+      </div>
+    </div>
+  </div>
+
   <footer class="footer">
     <div class="footer-content">
       <div class="footer-about">
@@ -180,7 +284,6 @@
       <p>Fish-Mar "Pescados & Mariscos" · 2026 · Creado con <i class="fas fa-heart" style="color: #ff6b6b;"></i> por Eduardo Chavez </p>
     </div>
   </footer>
-
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
