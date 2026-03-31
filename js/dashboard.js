@@ -32,7 +32,7 @@ let listaUsuarios = [];
 const audio = new Audio("assets/notification.mp3");
 
 // ======================
-// UTILIDADES GENERALES (las que no están en utils)
+// UTILIDADES GENERALES
 // ======================
 
 function reproducirNotificacion() {
@@ -191,10 +191,9 @@ async function crearProducto() {
     productoEditandoId = null;
     showToast("Producto actualizado correctamente", "success");
   } else {
-    const { data, error } = await supabaseClient
+    const { error } = await supabaseClient
       .from("productos")
-      .insert([nuevoProducto])
-      .select();
+      .insert([nuevoProducto]);
     if (error) {
       handleError(error, "Error al crear producto.");
       return;
@@ -351,9 +350,9 @@ async function cargarPedidos() {
     pedidosFiltrados = pedidosFiltrados.filter(p => getFechaPedidoFiltro(p) === fecha);
   }
   renderPedidos(pedidosFiltrados);
+  renderRepartidores(pedidosFiltrados);  // <-- Aquí se muestra el resumen
   actualizarStats(pedidosCache);
   renderGrafica(pedidosFiltrados);
-  renderRepartidores(pedidosFiltrados);
   actualizarMetricasPeriodo();
 }
 
@@ -471,8 +470,7 @@ async function asignarRepartidor(id, repartidorId) {
 }
 
 function actualizarStats(todos) {
-  // Esta función mantiene la gráfica de estado general, no los stats de métricas.
-  // Los stats de la pestaña métricas se actualizan en actualizarMetricasPeriodo.
+  // Función reservada para futuros usos (no elimina funcionalidad)
 }
 
 function renderGrafica(lista) {
@@ -497,26 +495,47 @@ function renderGrafica(lista) {
   });
 }
 
+// ======================
+// RESUMEN DE REPARTIDORES (solo efectivo entregado)
+// ======================
 function renderRepartidores(lista) {
   const cont = document.getElementById("resumenRepartidores");
   if (!cont) return;
-  const pedidosFiltrados = lista.filter(p => p.metodo_pago === "Efectivo" && p.estado === "Entregado");
-  const resumen = {};
-  pedidosFiltrados.forEach(p => {
-    const key = getRepartidorTextoPedido(p);
-    if (!key || key === "Sin asignar") return;
-    if (!resumen[key]) resumen[key] = 0;
-    resumen[key] += Number(p.total);
-  });
-  const entradas = Object.entries(resumen);
-  if (!entradas.length) {
+
+  // Filtrar pedidos en efectivo y entregados
+  const pedidosFiltrados = lista.filter(p => 
+    p.metodo_pago === "Efectivo" && p.estado === "Entregado"
+  );
+
+  if (pedidosFiltrados.length === 0) {
     cont.innerHTML = `<div class="panel">No hay pedidos en efectivo entregados en esta vista.</div>`;
     return;
   }
+
+  // Agrupar por repartidor
+  const resumen = {};
+  pedidosFiltrados.forEach(p => {
+    let repartidorNombre = p.repartidor_nombre;
+    if (!repartidorNombre && p.repartidor_id) {
+      const rep = repartidoresCache.find(r => r.user_id === p.repartidor_id);
+      repartidorNombre = rep ? rep.full_name : "Sin nombre";
+    }
+    if (!repartidorNombre || repartidorNombre === "Sin asignar") return;
+
+    if (!resumen[repartidorNombre]) resumen[repartidorNombre] = 0;
+    resumen[repartidorNombre] += Number(p.total);
+  });
+
+  const entradas = Object.entries(resumen);
+  if (!entradas.length) {
+    cont.innerHTML = `<div class="panel">No hay repartidores con pedidos en efectivo entregados.</div>`;
+    return;
+  }
+
   cont.innerHTML = entradas.map(([nombre, total]) => `
     <div class="admin-item">
       <strong>${nombre}</strong>
-      <div>$${total.toFixed(2)}</div>
+      <div style="font-size: 1.2rem; font-weight: bold; color: #0ea5a4;">$${total.toFixed(2)}</div>
     </div>
   `).join("");
 }
@@ -719,10 +738,6 @@ function actualizarInfoDescuento() {
   document.getElementById("montoDescuento").textContent = descuento.toFixed(2);
   document.getElementById("totalConDescuento").textContent = totalConDescuento.toFixed(2);
   document.getElementById("modalEditarTotal").textContent = totalConDescuento.toFixed(2);
-}
-
-function actualizarTotalEdicion() {
-  actualizarInfoDescuento();
 }
 
 function aplicarDescuento() {
