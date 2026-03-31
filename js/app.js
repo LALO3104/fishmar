@@ -7,6 +7,11 @@ let categoriaActual = "all";
 let subcategoriaActual = "";
 let ubicacionActual = "";
 
+// Variables para el mapa
+let mapInstance = null;
+let marker = null;
+let ubicacionSeleccionadaLatLng = null;
+
 // Referencias a campos del modal
 let modalNombreCliente, modalTelefonoCliente, modalDireccionCliente, modalMetodoPago, modalNotasPedido, modalUbicacionText;
 
@@ -393,6 +398,72 @@ function obtenerUbicacion() {
     },
     { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
   );
+}
+
+// Funciones del mapa (nuevas)
+function abrirMapModal() {
+  const modal = document.getElementById('mapModal');
+  modal.style.display = 'block';
+  document.body.style.overflow = 'hidden';
+
+  if (!mapInstance) {
+    // Centro por defecto: Ixtapaluca (ajústalo si quieres)
+    mapInstance = L.map('map').setView([19.319, -98.882], 13);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; CartoDB'
+    }).addTo(mapInstance);
+
+    mapInstance.on('click', function(e) {
+      if (marker) marker.remove();
+      marker = L.marker(e.latlng).addTo(mapInstance);
+      ubicacionSeleccionadaLatLng = e.latlng;
+    });
+  } else {
+    mapInstance.invalidateSize();
+  }
+}
+
+function cerrarMapModal() {
+  document.getElementById('mapModal').style.display = 'none';
+  document.body.style.overflow = 'auto';
+}
+
+async function buscarDireccion() {
+  const query = document.getElementById('searchAddress').value.trim();
+  if (!query) {
+    showToast('Escribe una dirección para buscar');
+    return;
+  }
+  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1&addressdetails=1`;
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data && data.length > 0) {
+      const { lat, lon } = data[0];
+      const latlng = L.latLng(parseFloat(lat), parseFloat(lon));
+      mapInstance.setView(latlng, 15);
+      if (marker) marker.remove();
+      marker = L.marker(latlng).addTo(mapInstance);
+      ubicacionSeleccionadaLatLng = latlng;
+    } else {
+      showToast('No se encontró esa dirección. Intenta con otro término.');
+    }
+  } catch (err) {
+    handleError(err, 'Error al buscar la dirección');
+  }
+}
+
+function confirmarUbicacionMapa() {
+  if (!ubicacionSeleccionadaLatLng) {
+    showToast('Selecciona un punto en el mapa primero');
+    return;
+  }
+  const lat = ubicacionSeleccionadaLatLng.lat;
+  const lng = ubicacionSeleccionadaLatLng.lng;
+  ubicacionActual = `https://www.google.com/maps?q=${lat},${lng}`;
+  const ubicacionEl = document.getElementById('ubicacion');
+  if (ubicacionEl) ubicacionEl.textContent = 'Ubicación seleccionada manualmente ✅';
+  cerrarMapModal();
 }
 
 // Validación y envío desde el modal
