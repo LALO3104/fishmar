@@ -1,52 +1,105 @@
+// js/admin.js
+
+function mostrarError(mensaje) {
+  const errorDiv = document.getElementById("loginError");
+  errorDiv.textContent = mensaje;
+  errorDiv.classList.add("show");
+  // Ocultar después de 5 segundos
+  setTimeout(() => {
+    errorDiv.classList.remove("show");
+  }, 5000);
+}
+
+function limpiarError() {
+  const errorDiv = document.getElementById("loginError");
+  errorDiv.classList.remove("show");
+  errorDiv.textContent = "";
+}
+
 async function login() {
+  limpiarError();
+
   const email = document.getElementById("email").value.trim();
   const password = document.getElementById("password").value.trim();
 
   if (!email || !password) {
-    showToast("Escribe tu correo y contraseña.");
+    mostrarError("❌ Por favor, ingresa tu correo y contraseña.");
     return;
   }
 
-  const { error } = await supabaseClient.auth.signInWithPassword({
-    email,
-    password
-  });
-
-  if (error) {
-    handleError(error, "No se pudo iniciar sesión.");
+  // Validación básica de formato de email
+  const emailRegex = /^[^\s@]+@([^\s@.,]+\.)+[^\s@.,]{2,}$/;
+  if (!emailRegex.test(email)) {
+    mostrarError("📧 El correo electrónico no tiene un formato válido.");
     return;
   }
 
-  const { data: userData, error: userError } = await supabaseClient.auth.getUser();
-  if (userError || !userData?.user) {
-    handleError(userError, "No se pudo leer el usuario autenticado.");
-    return;
-  }
+  try {
+    const { data, error } = await supabaseClient.auth.signInWithPassword({
+      email,
+      password
+    });
 
-  const userId = userData.user.id;
+    if (error) {
+      // Mensajes específicos según el error de Supabase
+      switch (error.message) {
+        case "Invalid login credentials":
+          mostrarError("🔐 Correo o contraseña incorrectos. Verifica tus datos.");
+          break;
+        case "Email not confirmed":
+          mostrarError("📬 Tu correo aún no ha sido confirmado. Revisa tu bandeja de entrada.");
+          break;
+        case "User not found":
+          mostrarError("👤 No existe una cuenta con ese correo electrónico.");
+          break;
+        case "Password should be at least 6 characters":
+          mostrarError("🔒 La contraseña debe tener al menos 6 caracteres.");
+          break;
+        default:
+          mostrarError(`⚠️ Error al iniciar sesión: ${error.message}`);
+      }
+      return;
+    }
 
-  const { data: roleRow, error: roleError } = await supabaseClient
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .single();
+    if (!data.user) {
+      mostrarError("⚠️ No se pudo obtener la información del usuario.");
+      return;
+    }
 
-  if (roleError || !roleRow) {
-    handleError(roleError, "Tu usuario no tiene rol asignado.");
+    const userId = data.user.id;
+
+    // Verificar rol
+    const { data: roleRow, error: roleError } = await supabaseClient
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .single();
+
+    if (roleError || !roleRow) {
+      mostrarError("🚫 Tu usuario no tiene un rol asignado. Contacta al administrador.");
+      await supabaseClient.auth.signOut();
+      return;
+    }
+
+    if (roleRow.role === "admin" || roleRow.role === "superadmin") {
+      window.location.href = "dashboard.html";
+      return;
+    }
+
+    if (roleRow.role === "repartidor") {
+      window.location.href = "repartidor.html";
+      return;
+    }
+
+    mostrarError("❓ Rol de usuario no válido. Contacta al administrador.");
     await supabaseClient.auth.signOut();
-    return;
-  }
 
-  if (roleRow.role === "admin") {
-    window.location.href = "dashboard.html";
-    return;
+  } catch (err) {
+    console.error("Error inesperado:", err);
+    mostrarError("🌐 Error de conexión. Intenta de nuevo más tarde.");
   }
-
-  if (roleRow.role === "repartidor") {
-    window.location.href = "repartidor.html";
-    return;
-  }
-
-  showToast("Rol no válido.");
-  await supabaseClient.auth.signOut();
 }
+
+// Limpiar error cuando el usuario empieza a escribir
+document.getElementById("email").addEventListener("input", limpiarError);
+document.getElementById("password").addEventListener("input", limpiarError);
