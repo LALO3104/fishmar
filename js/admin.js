@@ -1,10 +1,9 @@
-// js/admin.js
++// js/admin.js
 
 function mostrarError(mensaje) {
   const errorDiv = document.getElementById("loginError");
   errorDiv.textContent = mensaje;
   errorDiv.classList.add("show");
-  // Ocultar después de 5 segundos
   setTimeout(() => {
     errorDiv.classList.remove("show");
   }, 5000);
@@ -41,7 +40,6 @@ async function login() {
     });
 
     if (error) {
-      // Mensajes específicos según el error de Supabase
       switch (error.message) {
         case "Invalid login credentials":
           mostrarError("🔐 Correo o contraseña incorrectos. Verifica tus datos.");
@@ -81,18 +79,19 @@ async function login() {
       return;
     }
 
-    if (roleRow.role === "admin" || roleRow.role === "superadmin") {
+    const rol = roleRow.role;
+
+    // Redirigir según el rol
+    if (rol === "admin" || rol === "superadmin") {
       window.location.href = "dashboard.html";
-      return;
-    }
-
-    if (roleRow.role === "repartidor") {
+    } else if (rol === "repartidor") {
       window.location.href = "repartidor.html";
-      return;
+    } else if (rol === "mesero") {
+      window.location.href = "mesero.html";
+    } else {
+      mostrarError("❓ Rol de usuario no válido. Contacta al administrador.");
+      await supabaseClient.auth.signOut();
     }
-
-    mostrarError("❓ Rol de usuario no válido. Contacta al administrador.");
-    await supabaseClient.auth.signOut();
 
   } catch (err) {
     console.error("Error inesperado:", err);
@@ -101,5 +100,7 @@ async function login() {
 }
 
 // Limpiar error cuando el usuario empieza a escribir
-document.getElementById("email").addEventListener("input", limpiarError);
-document.getElementById("password").addEventListener("input", limpiarError);
+const emailInput = document.getElementById("email");
+const passwordInput = document.getElementById("password");
+if (emailInput) emailInput.addEventListener("input", limpiarError);
+if (passwordInput) passwordInput.addEventListener("input", limpiarError);
