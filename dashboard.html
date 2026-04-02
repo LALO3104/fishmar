@@ -116,23 +116,31 @@
       transform: translateY(-2px);
       box-shadow: 0 12px 24px rgba(0,0,0,0.08);
     }
-    .delete-pedido-btn, .map-btn, .whatsapp-btn {
+    .delete-pedido-btn, .map-btn, .whatsapp-btn, .print-pedido-btn {
       border-radius: 40px;
       padding: 8px 16px;
       font-weight: 600;
       transition: all 0.2s;
+      cursor: pointer;
     }
-    .delete-pedido-btn:hover, .map-btn:hover, .whatsapp-btn:hover {
+    .delete-pedido-btn:hover, .map-btn:hover, .whatsapp-btn:hover, .print-pedido-btn:hover {
       transform: scale(1.02);
     }
     .whatsapp-btn {
       background: #25D366;
       color: white;
       border: none;
-      cursor: pointer;
     }
     .whatsapp-btn:hover {
       background: #128C7E;
+    }
+    .print-pedido-btn {
+      background: #4b5563;
+      color: white;
+      border: none;
+    }
+    .print-pedido-btn:hover {
+      background: #374151;
     }
     .form-panel input, .form-panel select, .form-panel textarea {
       border-radius: 20px;
@@ -214,6 +222,7 @@
       margin-bottom: 24px;
       border-bottom: 2px solid #e2e8f0;
       padding-bottom: 8px;
+      flex-wrap: wrap;
     }
     .tab-btn {
       background: none;
@@ -294,6 +303,114 @@
         grid-template-columns: 1fr;
       }
     }
+
+    /* Estilos mejorados para impresión de tickets */
+    @media print {
+      body * {
+        visibility: hidden;
+      }
+      .ticket-print, .ticket-print * {
+        visibility: visible;
+      }
+      .ticket-print {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 58mm;
+        padding: 3mm 2mm;
+        font-family: 'Courier New', 'Lucida Console', monospace;
+        font-size: 10pt;
+        line-height: 1.3;
+      }
+      .no-print {
+        display: none;
+      }
+    }
+    .ticket-print {
+      width: 58mm;
+      margin: 0 auto;
+      font-family: 'Courier New', 'Lucida Console', monospace;
+      font-size: 10pt;
+      background: white;
+      color: black;
+    }
+    .ticket-print .header {
+      text-align: center;
+      margin-bottom: 5px;
+      border-bottom: 1px dashed #000;
+      padding-bottom: 5px;
+    }
+    .ticket-print .header h2 {
+      font-size: 14pt;
+      margin: 0;
+      letter-spacing: 1px;
+    }
+    .ticket-print .header p {
+      margin: 2px 0;
+      font-size: 9pt;
+    }
+    .ticket-print .pedido-info {
+      text-align: center;
+      margin: 8px 0;
+      font-weight: bold;
+      border: 1px solid #000;
+      padding: 4px;
+      background: #f0f0f0;
+    }
+    .ticket-print .cliente-info {
+      margin: 8px 0;
+      border-top: 1px dotted #000;
+      border-bottom: 1px dotted #000;
+      padding: 5px 0;
+    }
+    .ticket-print .productos-tabla {
+      width: 100%;
+      margin: 8px 0;
+      border-collapse: collapse;
+    }
+    .ticket-print .productos-tabla th {
+      text-align: left;
+      border-bottom: 1px solid #000;
+      padding: 3px 0;
+    }
+    .ticket-print .productos-tabla td {
+      padding: 2px 0;
+    }
+    .ticket-print .productos-tabla .cantidad {
+      width: 20%;
+      text-align: center;
+    }
+    .ticket-print .productos-tabla .descripcion {
+      width: 55%;
+    }
+    .ticket-print .productos-tabla .importe {
+      width: 25%;
+      text-align: right;
+    }
+    .ticket-print .totales {
+      margin-top: 8px;
+      border-top: 1px dashed #000;
+      padding-top: 4px;
+    }
+    .ticket-print .linea-total {
+      display: flex;
+      justify-content: space-between;
+      font-weight: bold;
+    }
+    .ticket-print .gracias {
+      text-align: center;
+      margin-top: 12px;
+      font-size: 9pt;
+      border-top: 1px dashed #000;
+      padding-top: 6px;
+    }
+    .ticket-print .barcode {
+      text-align: center;
+      font-family: 'Courier New', monospace;
+      font-size: 14pt;
+      letter-spacing: 2px;
+      margin: 8px 0;
+    }
   </style>
 </head>
 <body>
@@ -313,6 +430,7 @@
       <button class="tab-btn active" data-tab="pedidos">📦 Pedidos</button>
       <button class="tab-btn" data-tab="productos">🐟 Productos</button>
       <button class="tab-btn" data-tab="metricas">📊 Métricas</button>
+      <button class="tab-btn" data-tab="ventaslocal">🏪 Ventas local</button>
       <button class="tab-btn" data-tab="usuarios" id="tabUsuariosBtn" style="display: none;">👥 Usuarios</button>
     </div>
 
@@ -337,9 +455,9 @@
         <div id="pedidos" class="admin-list"></div>
       </div>
 
-      <!-- Resumen de recaudación por repartidor (efectivo entregado) -->
+      <!-- Resumen de recaudación por repartidor -->
       <div class="panel" style="margin-top: 24px;">
-        <h2>💰 Recaudación por repartidor</h2>
+        <h2>💰 Recaudación por repartidor (efectivo entregado)</h2>
         <div id="resumenRepartidores" class="admin-list">
           <div class="panel">Cargando...</div>
         </div>
@@ -450,6 +568,31 @@
       </div>
     </div>
 
+    <!-- PANEL DE VENTAS LOCAL -->
+    <div id="tabVentaslocal" class="tab-pane">
+      <div class="panel">
+        <h2>Ventas en local (restaurante)</h2>
+        <div class="toolbar" style="margin-bottom: 20px;">
+          <input type="date" id="filtroFechaLocal" onchange="cargarVentasLocal()" />
+          <button class="primary-btn" onclick="cargarVentasLocal()">Filtrar</button>
+          <button class="secondary-btn" onclick="limpiarFiltroLocal()">Limpiar filtro</button>
+        </div>
+        <div class="stats-grid" style="margin-bottom: 20px;">
+          <div class="stat-card">
+            <h4>Total del día</h4>
+            <p id="totalLocalDia">$0.00</p>
+          </div>
+          <div class="stat-card">
+            <h4>Pedidos cerrados</h4>
+            <p id="totalPedidosLocal">0</p>
+          </div>
+        </div>
+        <div id="listaVentasLocal" class="admin-list">
+          <div class="panel">Selecciona una fecha para ver las ventas locales</div>
+        </div>
+      </div>
+    </div>
+
     <!-- PANEL DE USUARIOS (solo super admin) -->
     <div id="tabUsuarios" class="tab-pane">
       <div class="panel">
@@ -555,6 +698,7 @@
           <select id="nuevoRol" style="width: 100%; padding: 10px; border-radius: 12px; border: 1px solid #cbd5e1;">
             <option value="admin">Administrador</option>
             <option value="repartidor">Repartidor</option>
+            <option value="mesero">Mesero</option>
           </select>
         </div>
         <div class="form-group" style="margin-bottom: 12px;">
@@ -569,6 +713,42 @@
         <div class="form-group">
           <button class="primary-btn" onclick="crearUsuario()">Crear usuario</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal para ver detalles del pedido local (mejorado) -->
+  <div id="modalDetallePedidoLocal" class="cart-modal" style="display: none;">
+    <div class="cart-modal-content" style="max-width: 600px;">
+      <div class="cart-modal-header">
+        <h3>📋 Detalle del pedido local</h3>
+        <span class="close-modal" onclick="cerrarModalDetallePedidoLocal()">&times;</span>
+      </div>
+      <div class="cart-modal-scrollable">
+        <div id="detallePedidoLocalContent">
+          <!-- Contenido dinámico -->
+        </div>
+      </div>
+      <div class="cart-modal-footer">
+        <button class="secondary-btn" onclick="cerrarModalDetallePedidoLocal()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de confirmación para eliminar pedido local -->
+  <div id="modalConfirmarEliminarLocal" class="cart-modal" style="display: none;">
+    <div class="cart-modal-content" style="max-width: 400px;">
+      <div class="cart-modal-header">
+        <h3>⚠️ Confirmar eliminación</h3>
+        <span class="close-modal" onclick="cerrarModalConfirmarEliminarLocal()">&times;</span>
+      </div>
+      <div class="cart-modal-scrollable">
+        <p>¿Estás seguro de eliminar este pedido local?</p>
+        <p>Esta acción no se puede deshacer.</p>
+      </div>
+      <div class="cart-modal-footer">
+        <button class="secondary-btn" onclick="cerrarModalConfirmarEliminarLocal()">Cancelar</button>
+        <button class="delete-pedido-btn" id="btnConfirmarEliminarLocal">Sí, eliminar</button>
       </div>
     </div>
   </div>
