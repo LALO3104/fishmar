@@ -55,6 +55,7 @@ async function cargarPedidosRepartidor() {
     .from("pedidos")
     .select("*")
     .eq("repartidor_id", userIdActual)
+    .neq('tipo_pedido', 'local')
     .order("created_at", { ascending: false });
 
   if (fechaFiltro) {
