@@ -544,6 +544,44 @@ function validateModalForm() {
   return valid;
 }
 
+// Función para generar número de pedido con formato YYMMDD + 3 dígitos secuenciales por día
+async function generarNumeroPedido() {
+  const hoy = new Date();
+  const year = hoy.getFullYear().toString().slice(-2);
+  const month = String(hoy.getMonth() + 1).padStart(2, '0');
+  const day = String(hoy.getDate()).padStart(2, '0');
+  const prefijo = `${year}${month}${day}`; // ej: 260401
+
+  // Buscar el último número de pedido generado hoy
+  const { data, error } = await supabaseClient
+    .from('pedidos')
+    .select('numero_pedido')
+    .like('numero_pedido', `${prefijo}%`)
+    .order('numero_pedido', { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.error('Error al obtener último número de pedido:', error);
+    throw new Error('No se pudo generar el número de pedido. Reintenta.');
+  }
+
+  let siguienteNumero = 1;
+  if (data && data.length > 0) {
+    const ultimo = data[0].numero_pedido;
+    const sufijo = parseInt(ultimo.slice(-3), 10);
+    if (!isNaN(sufijo)) {
+      siguienteNumero = sufijo + 1;
+    }
+  }
+
+  if (siguienteNumero > 999) {
+    throw new Error('Límite de pedidos diarios alcanzado (999).');
+  }
+
+  const numeroStr = String(siguienteNumero).padStart(3, '0');
+  return `${prefijo}${numeroStr}`;
+}
+
 async function enviarPedidoDesdeModal() {
   if (!validateModalForm()) return;
 
@@ -554,7 +592,14 @@ async function enviarPedidoDesdeModal() {
   const notas = modalNotasPedido ? modalNotasPedido.value.trim() : "";
 
   const fecha = new Date().toISOString().split("T")[0];
-  const numeroPedido = `FM-${Date.now()}`;
+  
+  let numeroPedido;
+  try {
+    numeroPedido = await generarNumeroPedido();
+  } catch (err) {
+    showToast(err.message, 'error');
+    return;
+  }
 
   const subtotalRaw = carrito.reduce((acc, item) => acc + (Number(item.precio) * Number(item.qty)), 0);
   const subtotal = roundUpToHalf(subtotalRaw);
@@ -575,7 +620,8 @@ async function enviarPedidoDesdeModal() {
     ubicacion: ubicacionActual,
     notas: notas || null,
     items: JSON.parse(JSON.stringify(itemsPedido)),
-    fecha
+    fecha,
+    tipo_pedido: 'domicilio'
   };
 
   const { data, error } = await supabaseClient
@@ -610,7 +656,7 @@ async function enviarPedidoDesdeModal() {
   if (notas) mensaje += `📝 *Notas:* ${notas}\n`;
   if (ubicacionActual) mensaje += `\n📍 *Ubicación:* ${ubicacionActual}`;
 
-  const numeroWhatsApp = "5519321156";
+  const numeroWhatsApp = "5569080488";
   const url = `https://wa.me/${numeroWhatsApp}?text=${encodeURIComponent(mensaje)}`;
 
   window.open(url, "_blank");
