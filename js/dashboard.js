@@ -1,12 +1,16 @@
+
 // js/dashboard.js
 // Dependencias: supabaseClient (supabase.js), utils.js
 
-let pedidosCache = [];
+let pedidosCache = [];           // Solo pedidos a domicilio (para listado)
+let todosPedidosCache = [];      // Online + locales cerrados (para métricas)
 let productosCache = [];
 let repartidoresCache = [];
 let chart = null;
 let productoEditandoId = null;
 let ultimoPedidoId = null;
+let ventasLocalCache = [];          // Para almacenar pedidos locales cerrados
+let pedidoLocalAEliminar = null;    // Para eliminar con modal
 
 // Variables para descuento en edición
 let descuentoValorActual = 0;
@@ -320,28 +324,52 @@ async function cargarRepartidores() {
 }
 
 // ======================
-// PEDIDOS
+// PEDIDOS (excluyendo locales)
 // ======================
 
 async function cargarPedidos() {
   const estado = document.getElementById("filtroEstado")?.value || "Todos";
   const fecha = document.getElementById("filtroFecha")?.value || "";
-  const { data, error } = await supabaseClient
+
+  // 1. Pedidos online (excluyendo locales)
+  const { data: onlineData, error: onlineError } = await supabaseClient
     .from("pedidos")
     .select("*")
+    .neq('tipo_pedido', 'local')
     .order("created_at", { ascending: false });
-  if (error) {
-    handleError(error, "Error cargando pedidos.");
+
+  if (onlineError) {
+    handleError(onlineError, "Error cargando pedidos online.");
     return;
   }
-  const nuevosPedidos = data || [];
-  if (nuevosPedidos.length > 0) {
-    if (ultimoPedidoId && nuevosPedidos[0].id !== ultimoPedidoId) {
+
+  // 2. Pedidos locales cerrados (para métricas)
+  const { data: localData, error: localError } = await supabaseClient
+    .from("pedidos")
+    .select("*")
+    .eq("tipo_pedido", "local")
+    .eq("estado_local", "cerrado");
+
+  if (localError) {
+    handleError(localError, "Error cargando pedidos locales cerrados.");
+    return;
+  }
+
+  // Unir ambos conjuntos para métricas
+  todosPedidosCache = [...(onlineData || []), ...(localData || [])];
+  
+  // Solo online para el listado
+  pedidosCache = onlineData || [];
+
+  // Notificación de nuevo pedido online (solo online)
+  if (pedidosCache.length > 0) {
+    if (ultimoPedidoId && pedidosCache[0].id !== ultimoPedidoId) {
       reproducirNotificacion();
     }
-    ultimoPedidoId = nuevosPedidos[0].id;
+    ultimoPedidoId = pedidosCache[0].id;
   }
-  pedidosCache = nuevosPedidos;
+
+  // Filtros para el listado (solo online)
   let pedidosFiltrados = [...pedidosCache];
   if (estado !== "Todos") {
     pedidosFiltrados = pedidosFiltrados.filter(p => p.estado === estado);
@@ -349,10 +377,12 @@ async function cargarPedidos() {
   if (fecha) {
     pedidosFiltrados = pedidosFiltrados.filter(p => getFechaPedidoFiltro(p) === fecha);
   }
+
   renderPedidos(pedidosFiltrados);
-  renderRepartidores(pedidosFiltrados);  // <-- Aquí se muestra el resumen
-  actualizarStats(pedidosCache);
+  renderRepartidores(pedidosFiltrados);
   renderGrafica(pedidosFiltrados);
+  
+  // Actualizar métricas con TODOS los pedidos (online + local cerrado)
   actualizarMetricasPeriodo();
 }
 
@@ -427,6 +457,7 @@ function renderPedidos(lista) {
           <button class="delete-pedido-btn" onclick="eliminarPedido(${p.id})">🗑️ Eliminar</button>
           <button class="edit-pedido-btn" onclick="abrirModalEditarPedido(${p.id})">✏️ Editar productos</button>
           <button class="whatsapp-btn" onclick="abrirModalWhatsApp(${p.id})">📱 WhatsApp</button>
+          <button class="print-pedido-btn" onclick="imprimirPedido(${p.id})">🖨️ Imprimir</button>
         </div>
       </div>
     `;
@@ -469,10 +500,6 @@ async function asignarRepartidor(id, repartidorId) {
   cargarPedidos();
 }
 
-function actualizarStats(todos) {
-  // Función reservada para futuros usos (no elimina funcionalidad)
-}
-
 function renderGrafica(lista) {
   const estados = {
     "Recibido": 0,
@@ -502,7 +529,6 @@ function renderRepartidores(lista) {
   const cont = document.getElementById("resumenRepartidores");
   if (!cont) return;
 
-  // Filtrar pedidos en efectivo y entregados
   const pedidosFiltrados = lista.filter(p => 
     p.metodo_pago === "Efectivo" && p.estado === "Entregado"
   );
@@ -512,7 +538,6 @@ function renderRepartidores(lista) {
     return;
   }
 
-  // Agrupar por repartidor
   const resumen = {};
   pedidosFiltrados.forEach(p => {
     let repartidorNombre = p.repartidor_nombre;
@@ -880,8 +905,26 @@ function enviarWhatsApp() {
 }
 
 // ======================
-// MÉTRICAS AVANZADAS
+// MÉTRICAS AVANZADAS (con online + local cerrado)
 // ======================
+
+function getFechaPedidoMetricas(p) {
+  // Para pedidos locales cerrados
+  if (p.tipo_pedido === 'local' && p.fecha_cierre) {
+    const d = new Date(p.fecha_cierre);
+    if (!isNaN(d.getTime())) return d;
+  }
+  // Para pedidos online
+  if (p.created_at) {
+    const d = new Date(p.created_at);
+    if (!isNaN(d.getTime())) return d;
+  }
+  if (p.fecha) {
+    const d = new Date(`${p.fecha}T00:00:00`);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return null;
+}
 
 function cambiarPeriodo() {
   periodoActual = document.getElementById("periodoSelector").value;
@@ -930,8 +973,9 @@ async function actualizarMetricasPeriodo() {
       break;
   }
 
-  const pedidosFiltrados = pedidosCache.filter(p => {
-    const fechaPedido = getFechaPedido(p);
+  // Filtrar todos los pedidos (online + local cerrado)
+  const pedidosFiltrados = todosPedidosCache.filter(p => {
+    const fechaPedido = getFechaPedidoMetricas(p);
     if (!fechaPedido) return false;
     return fechaPedido >= fechaInicio && fechaPedido <= fechaFin;
   });
@@ -943,10 +987,13 @@ async function actualizarMetricasPeriodo() {
 
 function actualizarStatsFiltrados(pedidos) {
   const ingresos = pedidos.reduce((acc, p) => acc + Number(p.total), 0);
-  const enProceso = pedidos.filter(p => p.estado === "En proceso").length;
-  const entregados = pedidos.filter(p => p.estado === "Entregado").length;
   document.getElementById("statPedidos").textContent = pedidos.length;
   document.getElementById("statIngresos").textContent = `$${ingresos.toFixed(2)}`;
+  
+  // Para "En proceso" y "Entregados" solo consideramos pedidos online
+  const onlinePedidos = pedidos.filter(p => p.tipo_pedido !== 'local');
+  const enProceso = onlinePedidos.filter(p => p.estado === "En proceso").length;
+  const entregados = onlinePedidos.filter(p => p.estado === "Entregado").length;
   document.getElementById("statProceso").textContent = enProceso;
   document.getElementById("statEntregados").textContent = entregados;
 }
@@ -963,7 +1010,11 @@ function generarDatosIngresosDiarios(pedidos, fechaInicio, fechaFin) {
     const fechaStr = fecha.toISOString().split('T')[0];
     labels.push(fechaStr);
     const totalDia = pedidos
-      .filter(p => getFechaPedidoFiltro(p) === fechaStr)
+      .filter(p => {
+        const fechaP = getFechaPedidoMetricas(p);
+        if (!fechaP) return false;
+        return fechaP.toISOString().split('T')[0] === fechaStr;
+      })
       .reduce((sum, p) => sum + Number(p.total), 0);
     ingresosPorDia.push(totalDia);
   }
@@ -998,7 +1049,7 @@ function generarVentasPorDiaSemana(pedidos) {
   const ventasPorDia = [0,0,0,0,0,0,0];
 
   pedidos.forEach(p => {
-    const fechaPedido = getFechaPedido(p);
+    const fechaPedido = getFechaPedidoMetricas(p);
     if (fechaPedido) {
       const dia = fechaPedido.getDay();
       ventasPorDia[dia] += Number(p.total);
@@ -1026,6 +1077,158 @@ function generarVentasPorDiaSemana(pedidos) {
       }
     }
   });
+}
+
+// ======================
+// VENTAS LOCAL (mejorado)
+// ======================
+
+async function cargarVentasLocal() {
+  const fecha = document.getElementById("filtroFechaLocal")?.value || getHoy();
+  const { data, error } = await supabaseClient
+    .from("pedidos")
+    .select("*")
+    .eq("tipo_pedido", "local")
+    .eq("estado_local", "cerrado")
+    .gte("fecha_cierre", `${fecha}T00:00:00-06:00`)
+    .lt("fecha_cierre", `${fecha}T23:59:59-06:00`);
+  if (error) {
+    handleError(error, "Error cargando ventas locales");
+    return;
+  }
+  ventasLocalCache = data || [];
+  const totalVentas = ventasLocalCache.reduce((sum, p) => sum + Number(p.total), 0);
+  document.getElementById("totalLocalDia").innerText = `$${totalVentas.toFixed(2)}`;
+  document.getElementById("totalPedidosLocal").innerText = ventasLocalCache.length;
+  const cont = document.getElementById("listaVentasLocal");
+  if (!cont) return;
+  if (ventasLocalCache.length === 0) {
+    cont.innerHTML = `<div class="panel" style="text-align:center; padding: 40px;">📭 No hay ventas locales cerradas en esta fecha.</div>`;
+    return;
+  }
+  cont.innerHTML = ventasLocalCache.map(p => {
+    const fechaCierre = new Date(p.fecha_cierre).toLocaleString('es-MX', {
+      timeZone: 'America/Mexico_City',
+      hour12: true
+    });
+    return `
+      <div class="admin-item" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <div style="flex: 2; min-width: 150px;">
+          <strong style="font-size: 1.1rem;">🍽️ ${p.mesa || "Mesa sin número"}</strong>
+          <br><small>📅 ${fechaCierre}</small>
+          <br><small>👨‍🍳 Mesero: ${p.mesero_id ? (p.mesero_nombre || p.mesero_id.slice(0,8)) : "N/A"}</small>
+        </div>
+        <div style="flex: 1; text-align: center;">
+          <span style="font-size: 1.2rem; font-weight: bold; color: #0ea5a4;">$${Number(p.total).toFixed(2)}</span>
+          <br><span class="badge" style="background: #e2e8f0; padding: 2px 8px; border-radius: 20px;">${p.metodo_pago_local || "N/A"}</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="small-btn" onclick="verDetallePedidoLocalModal(${p.id})" style="background: #0ea5a4; color: white;">👁️ Ver items</button>
+          <button class="delete-btn" onclick="confirmarEliminarPedidoLocal(${p.id})" style="background: #dc2626; color: white; border: none;">🗑️ Eliminar</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function verDetallePedidoLocalModal(pedidoId) {
+  const pedido = ventasLocalCache.find(p => p.id === pedidoId);
+  if (!pedido || !pedido.items) {
+    showToast("No hay detalle de productos para este pedido.");
+    return;
+  }
+  
+  const items = pedido.items;
+  let subtotal = 0;
+  const itemsHtml = items.map(item => {
+    const lineTotal = Number(item.precio) * Number(item.qty);
+    subtotal += lineTotal;
+    const unidad = item.tipo_venta === 'granel' ? 'kg' : 'pz';
+    return `
+      <tr>
+        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${item.nombre}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: center;">${item.qty} ${unidad}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right;">$${Number(item.precio).toFixed(2)}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right;">$${lineTotal.toFixed(2)}</td>
+      </tr>
+    `;
+  }).join('');
+  
+  const descuento = pedido.descuento_monto || 0;
+  const total = Number(pedido.total);
+  
+  const modalContent = `
+    <div style="padding: 8px;">
+      <p><strong>🍽️ Mesa:</strong> ${pedido.mesa || "Sin mesa"}</p>
+      <p><strong>📅 Fecha cierre:</strong> ${new Date(pedido.fecha_cierre).toLocaleString()}</p>
+      <p><strong>💳 Método de pago:</strong> ${pedido.metodo_pago_local || "No especificado"}</p>
+      <hr>
+      <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+          <tr style="background: #f1f5f9;">
+            <th style="padding: 8px; text-align: left;">Producto</th>
+            <th style="padding: 8px; text-align: center;">Cantidad</th>
+            <th style="padding: 8px; text-align: right;">Precio unit.</th>
+            <th style="padding: 8px; text-align: right;">Importe</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemsHtml}
+        </tbody>
+        <tfoot>
+          <tr><td colspan="3" style="padding: 8px; text-align: right;"><strong>Subtotal:</strong></td><td style="padding: 8px; text-align: right;">$${subtotal.toFixed(2)}</td></tr>
+          ${descuento > 0 ? `<tr><td colspan="3" style="padding: 8px; text-align: right;"><strong>Descuento:</strong></td><td style="padding: 8px; text-align: right;">-$${descuento.toFixed(2)}</td></tr>` : ''}
+          <tr style="font-size: 1.1rem; background: #f8fafc;"><td colspan="3" style="padding: 8px; text-align: right;"><strong>TOTAL:</strong></td><td style="padding: 8px; text-align: right;"><strong>$${total.toFixed(2)}</strong></td></tr>
+        </tfoot>
+      </table>
+    </div>
+  `;
+  
+  document.getElementById("detallePedidoLocalContent").innerHTML = modalContent;
+  document.getElementById("modalDetallePedidoLocal").style.display = "block";
+  document.body.style.overflow = "hidden";
+}
+
+function cerrarModalDetallePedidoLocal() {
+  document.getElementById("modalDetallePedidoLocal").style.display = "none";
+  document.body.style.overflow = "auto";
+}
+
+function confirmarEliminarPedidoLocal(pedidoId) {
+  pedidoLocalAEliminar = pedidoId;
+  document.getElementById("modalConfirmarEliminarLocal").style.display = "block";
+  document.body.style.overflow = "hidden";
+}
+
+function cerrarModalConfirmarEliminarLocal() {
+  document.getElementById("modalConfirmarEliminarLocal").style.display = "none";
+  document.body.style.overflow = "auto";
+  pedidoLocalAEliminar = null;
+}
+
+async function eliminarPedidoLocalConfirmado() {
+  if (!pedidoLocalAEliminar) return;
+  const { error } = await supabaseClient
+    .from("pedidos")
+    .delete()
+    .eq("id", pedidoLocalAEliminar)
+    .eq("tipo_pedido", "local");
+  
+  if (error) {
+    handleError(error, "No se pudo eliminar el pedido local.");
+    cerrarModalConfirmarEliminarLocal();
+    return;
+  }
+  
+  showToast("Pedido local eliminado correctamente", "success");
+  cerrarModalConfirmarEliminarLocal();
+  cargarVentasLocal(); // Recargar lista
+  cargarPedidos();     // Actualizar métricas globales
+}
+
+function limpiarFiltroLocal() {
+  document.getElementById("filtroFechaLocal").value = "";
+  cargarVentasLocal();
 }
 
 // ======================
@@ -1175,6 +1378,140 @@ function cerrarModalCrearUsuario() {
 }
 
 // ======================
+// IMPRESIÓN DE TICKET
+// ======================
+function imprimirPedido(pedidoId) {
+  const pedido = pedidosCache.find(p => p.id === pedidoId);
+  if (!pedido) {
+    showToast("No se encontró el pedido para imprimir.");
+    return;
+  }
+
+  const subtotal = (pedido.items || []).reduce((sum, item) => sum + (Number(item.precio) * Number(item.qty)), 0);
+  const descuento = pedido.descuento_monto || 0;
+  const total = Number(pedido.total);
+  const metodoPago = pedido.metodo_pago === "Efectivo" ? "EFECTIVO" : "TRANSFERENCIA";
+
+  const productosRows = (pedido.items || []).map(item => {
+    const cantidad = item.qty;
+    const unidad = item.tipo_venta === 'granel' ? 'KG' : 'PZ';
+    const descripcion = `${item.nombre} (${unidad})`;
+    const importe = (Number(item.precio) * cantidad).toFixed(2);
+    return `
+      <tr>
+        <td class="cantidad">${cantidad}</td>
+        <td class="descripcion">${descripcion}</td>
+        <td class="importe">$${importe}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const ticketHtml = `
+    <div class="ticket-print">
+      <div class="header">
+        <h2>🐟 FISH-MAR</h2>
+        <p>Pescados y Mariscos frescos</p>
+        <p>Pirules Mz 004, Alfredo del Mazo</p>
+        <p>Ixtapaluca, Méx. C.P. 56577</p>
+        <p>Tel. (55) 6908 0488</p>
+      </div>
+
+      <div class="pedido-info">
+        PEDIDO: ${pedido.numero_pedido || '#' + pedido.id}<br>
+        FECHA: ${formatearFechaPedido(pedido)}
+      </div>
+
+      <div class="cliente-info">
+        <strong>CLIENTE:</strong> ${pedido.nombre}<br>
+        <strong>TELÉFONO:</strong> ${pedido.telefono}<br>
+        <strong>DIRECCIÓN:</strong> ${pedido.direccion}<br>
+        <strong>PAGO:</strong> ${metodoPago}
+      </div>
+
+      <table class="productos-tabla">
+        <thead>
+          <tr>
+            <th class="cantidad">CANT</th>
+            <th class="descripcion">DESCRIPCIÓN</th>
+            <th class="importe">IMPORTE</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${productosRows}
+        </tbody>
+      </table>
+
+      <div class="totales">
+        <div class="linea-total">
+          <span>SUBTOTAL</span>
+          <span>$${subtotal.toFixed(2)}</span>
+        </div>
+        ${descuento > 0 ? `
+        <div class="linea-total">
+          <span>DESCUENTO</span>
+          <span>-$${descuento.toFixed(2)}</span>
+        </div>
+        ` : ''}
+        <div class="linea-total" style="font-size: 12pt; margin-top: 4px; border-top: 1px solid #000;">
+          <span>TOTAL</span>
+          <span>$${total.toFixed(2)}</span>
+        </div>
+      </div>
+
+      ${pedido.notas ? `<div style="margin: 6px 0; font-style: italic;">NOTAS: ${pedido.notas}</div>` : ''}
+
+      <div class="barcode">
+        ${pedido.numero_pedido || '#' + pedido.id}
+      </div>
+
+      <div class="gracias">
+        ¡Gracias por su compra!<br>
+        Visítenos de nuevo<br>
+        * Este ticket es su comprobante *
+      </div>
+    </div>
+  `;
+
+  const ventana = window.open('', '_blank', 'width=450,height=650,toolbar=yes,scrollbars=yes');
+  ventana.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>Ticket Pedido ${pedido.numero_pedido || pedido.id}</title>
+      <style>
+        body {
+          margin: 0;
+          padding: 0;
+          background: #e0e0e0;
+          display: flex;
+          justify-content: center;
+        }
+        @media print {
+          body {
+            background: white;
+            margin: 0;
+            padding: 0;
+          }
+          .no-print {
+            display: none;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      ${ticketHtml}
+      <div class="no-print" style="text-align:center; margin-top:20px; padding:10px;">
+        <button onclick="window.print()" style="padding:8px 16px; margin-right:10px;">🖨️ Imprimir</button>
+        <button onclick="window.close()" style="padding:8px 16px;">❌ Cerrar</button>
+      </div>
+    </body>
+    </html>
+  `);
+  ventana.document.close();
+}
+
+// ======================
 // CONFIGURACIÓN DE PESTAÑAS
 // ======================
 
@@ -1196,6 +1533,9 @@ function setupTabs() {
       if (tabId === 'metricas' && chart) {
         chart.update();
       }
+      if (tabId === 'ventaslocal') {
+        cargarVentasLocal();
+      }
     });
   });
 }
@@ -1211,6 +1551,13 @@ setInterval(() => {
 // ======================
 // INICIALIZACIÓN
 // ======================
+
+document.addEventListener("DOMContentLoaded", () => {
+  const btnConfirmar = document.getElementById("btnConfirmarEliminarLocal");
+  if (btnConfirmar) {
+    btnConfirmar.addEventListener("click", eliminarPedidoLocalConfirmado);
+  }
+});
 
 (async function initDashboard() {
   const autenticado = await verificarSesionAdmin();
